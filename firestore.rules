@@ -1,0 +1,42 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isMember(roomId) {
+      return exists(/databases/$(database)/documents/rooms/$(roomId)/members/$(request.auth.uid));
+    }
+
+    function isMemberAfter(roomId) {
+      return existsAfter(/databases/$(database)/documents/rooms/$(roomId)/members/$(request.auth.uid));
+    }
+
+    match /rooms/{roomId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.code is string
+        && request.resource.data.code == roomId
+        && request.resource.data.hostUid == request.auth.uid
+        && request.resource.data.status == 'waiting';
+      allow update: if signedIn()
+        && isMemberAfter(roomId)
+        && request.resource.data.status in ['waiting', 'paired']
+        && request.resource.data.code == resource.data.code
+        && request.resource.data.hostUid == resource.data.hostUid;
+
+      match /members/{uid} {
+        allow read: if signedIn();
+        allow create, update: if signedIn() && request.auth.uid == uid;
+      }
+
+      match /rings/{ringId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && isMember(roomId)
+          && request.resource.data.fromUid == request.auth.uid;
+      }
+    }
+  }
+}
